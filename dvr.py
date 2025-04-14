@@ -121,7 +121,8 @@ def init_dv_table(init_costs):
     return this_node_id
 
 """
-return dv_table in the following format:
+return dv_table into optimal path to destination costs for broadcasting
+in the following format:
 <node_id>. <destination_1>:<cost_1>,...,<destination_n>:<cost_n>
 """
 def serialize_dv_table():
@@ -145,16 +146,19 @@ def update_dv_table(msg):
     for pair in other.split(","):
         # update the total cost to destination thru this neighbor
         destination, advertised_cost = pair.split(":")
+        # do not record the cost it this node itself
         if destination == node_id:
             continue
+        # update the new cost to destination via this neighbor
         cost_to_neighbor = dv_table[neighbor_node_id][neighbor_node_id]
-        new_total_cost = int(advertised_cost) + cost_to_neighbor        
-        dv_table[destination][neighbor_node_id] = new_total_cost
+        new_total_cost_to_dest = int(advertised_cost) + cost_to_neighbor        
+        dv_table[destination][neighbor_node_id] = new_total_cost_to_dest
         
         # check if the optimal path & cost has been updated
         via, min_cost = min(dv_table[destination].items(), key=lambda x: x[1])
         if prev_best_path[destination] != (min_cost, via):
             # the optimal path & cost to a destination has been updated 
+            # update the new optimal next hop & cost
             prev_best_path[destination] = (min_cost, via)
             is_updated = True
     return is_updated

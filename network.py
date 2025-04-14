@@ -4,6 +4,9 @@ Assignment 3 - Distance Vector Routing
 
 network.py - the Network program simulates a network of distributed nodes that communicate by broadcasting
 messages to their neighbors. Students use a network interface to implement a distance vector routing protocol
+
+RUN: python3 network.py 10000 topology.dat
+
 """
 import socket
 import threading
