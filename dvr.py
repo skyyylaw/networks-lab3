@@ -4,10 +4,14 @@ Assignment 3 - Distance Vector Routing
 
 dvr.py - the Distance Vector Routing (DVR) program announces its distance vector to its neighbors and 
 updates its routing table based on the received routing vectors from its neighbors
+
+RUN: python3 dvr.py 127.0.0.1 10000
+
 """
 import sys
 import socket
 import time
+from collections import defaultdict
 
 class NetworkInterface():
     """
@@ -77,13 +81,84 @@ class NetworkInterface():
         """
         self.sock.close()
 
-def parse_init_costs(init_costs):
+
+CONVERGENCE_THRESHOLD = 500
+MSG_LENGTH = 1024 * 4
+node_id = None
+dv_table = defaultdict(lambda: defaultdict(lambda: float('inf'))) # usage: dv_table[destination node_id][via node_id] = cost
+prev_best_path = defaultdict(lambda: (float('inf'), "")) # usage: prev_best_path[destination node_id] = (cost, via/ next hop)
+file = None
+
+def visualize_dv_table():
+    for dest, via_table in dv_table.items():
+        print(f"{dest}:")
+        for via, cost in via_table.items():
+            print(f"  via {via}: {cost}")
+        min_cost, via = min((cost, via) for via, cost in via_table.items())
+        print(f"  best via {via}:{min_cost}")
+
+"""
+Write the message to the log file. Use flush to ensure the message is written to the file immediately
+<node_1>:<cost_1>:<next_hop_1> ... <node_n>:<cost_n>:<next_hop_n>
+"""
+def log():
+    for destination, via_table in dv_table.items():
+        min_cost, via = min((cost, via) for via, cost in via_table.items())
+        file.write(f"{destination}:{min_cost}:{via} ")
+    file.write("\n")
+    file.flush() # IMPORTANT
+
+"""
+get the initial costs to your neighbors to help initialize your vector and table. Format is:
+<node_id>. <neighbor_1>:<cost_1>,...,<neighbor_n>:<cost_n>
+"""
+def init_dv_table(init_costs):
     # <node_id>. <neighbor_1>:<cost_1>,...,<neighbor_n>:<cost_n>
-    node_id, neighbors_part =  init_costs.split(". ")
+    this_node_id, neighbors_part =  init_costs.split(". ")
     for pair in neighbors_part.split(","):
         neighbor, cost = pair.split(":")
-        dvt[neighbor] = float(cost)
-    print(dvt)
+        dv_table[neighbor][neighbor] = int(cost)
+    return this_node_id
+
+"""
+return dv_table in the following format:
+<node_id>. <destination_1>:<cost_1>,...,<destination_n>:<cost_n>
+"""
+def serialize_dv_table():
+    res = f"{node_id}. "
+    for destination, via_table in dv_table.items():
+        res += f"{destination}:{min(via_table.values())},"
+    # remove the last comma
+    res = res[:-1]
+    # add a '|' to separate msgs
+    res += "|"
+    return res
+
+"""
+update dv_table given the msg from neighbor
+return True if updated. False otherwise.
+<node_id>. <neighbor_1>:<cost_1>,<neighbor_n>:<cost_n>
+"""
+def update_dv_table(msg):
+    is_updated = False
+    neighbor_node_id, other = msg.split(". ")
+    for pair in other.split(","):
+        # update the total cost to destination thru this neighbor
+        destination, advertised_cost = pair.split(":")
+        if destination == node_id:
+            continue
+        cost_to_neighbor = dv_table[neighbor_node_id][neighbor_node_id]
+        new_total_cost = int(advertised_cost) + cost_to_neighbor        
+        dv_table[destination][neighbor_node_id] = new_total_cost
+        
+        # check if the optimal path & cost has been updated
+        via, min_cost = min(dv_table[destination].items(), key=lambda x: x[1])
+        if prev_best_path[destination] != (min_cost, via):
+            # the optimal path & cost to a destination has been updated 
+            prev_best_path[destination] = (min_cost, via)
+            is_updated = True
+    return is_updated
+
 
 
 if __name__ == '__main__':
@@ -92,33 +167,37 @@ if __name__ == '__main__':
  
     net_interface = NetworkInterface(network_port, network_ip) # initialize the network interface
 
-    # get the initial costs to your neighbors to help initialize your vector and table. Format is:
-    # <node_id>. <neighbor_1>:<cost_1>,...,<neighbor_n>:<cost_n>
+    # obtain & record init costs
     init_costs = net_interface.initial_costs() 
-    print(init_costs)
+    node_id = init_dv_table(init_costs)
+    # print(init_costs)
 
-    """Below is an example of how to use the network interface and log. Replace it with your distance vector routing protocol"""
+    # Create a log file & log initial state
+    file = open(f"log_{node_id}.txt", "w")
+    log()
 
-    # Create a log file
-    log_file = open("log.txt", "w")
-
-    # Example of sending a message to the network, 
-    # which is guaranteed to be broadcast to your neighbors
-    net_interface.send(b"Hello neighbor")
+    is_updated = True
+    no_update = 0
+    while no_update < CONVERGENCE_THRESHOLD:
+        # broadcast to neighbor dv_table because recv is blocking
+        net_interface.send(serialize_dv_table().encode())
         
-    # Example of receiving a message from the network,
-    # which is guaranteed to be from a neighbor
-    msg = net_interface.recv(1024) # receive the message from the network. Note: May return content from multiple nodes. 
+        if is_updated:
+            log()
+            no_update = 0
+        else:
+            no_update += 1
+        
+        is_updated = False
 
-    # Write the message to the log file. Use flush to ensure the message is written to the file immediately
-    log_file.write(msg.decode())
-    log_file.flush() # IMPORTANT
- 
-    # Wait for 5 seconds before closing the interface
-    time.sleep(5)
+        raw_msg = net_interface.recv(MSG_LENGTH)
+        msgs = raw_msg.decode().split("|")
+        for msg in msgs:
+            if msg.strip():
+                is_updated = is_updated or update_dv_table(msg)
 
-    # Close the interface with the network
+    # print the dv_table to verify convergence
+    visualize_dv_table()
+
     net_interface.close()
-
-    # Close the log file
-    log_file.close()
+    file.close()
