@@ -76,7 +76,15 @@ class NetworkInterface():
         Close the socket connection with the network.
         """
         self.sock.close()
-    
+
+def parse_init_costs(init_costs):
+    # <node_id>. <neighbor_1>:<cost_1>,...,<neighbor_n>:<cost_n>
+    node_id, neighbors_part =  init_costs.split(". ")
+    for pair in neighbors_part.split(","):
+        neighbor, cost = pair.split(":")
+        dvt[neighbor] = float(cost)
+    print(dvt)
+
 
 if __name__ == '__main__':
     network_ip = sys.argv[1] # the IP address of the network
